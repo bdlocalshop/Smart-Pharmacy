@@ -24,7 +24,7 @@ A high-performance, offline-first Windows desktop application built specifically
 - **Low Stock Warnings**: Automatically flags any medicine where total valid stock falls below the configured reorder threshold.
 
 ### 4. Sales Volume & Performance Reports
-- **Dynamic Period Filtering**: Switch seamlessly between **Today**, **Yesterday**, **This Week**, **This Month**, and **All Time**. All four KPI metric counters (*Total Invoices*, *Units Sold*, *Gross Revenue*, and *Estimated Profit*) automatically recalculate on the fly for the selected period.
+- **Dynamic Period Filtering & Custom Date Range**: Switch seamlessly between **Today**, **Yesterday**, **This Week**, **This Month**, and **Custom Date**. Selecting **Custom Date** opens an interactive dialog to pick any specific date range (with quick presets like *Last 7 Days*, *Last 30 Days*, *This Year*). All four KPI metric counters (*Total Invoices*, *Units Sold*, *Gross Revenue*, and *Estimated Profit*) automatically recalculate on the fly for the selected period.
 - **Real Profit Calculation**: Accurately computes gross profit based on the actual purchase cost of each deducted batch:
   $$\text{Profit} = (\text{Selling Price} - \text{Batch Purchase Cost}) \times \text{Quantity} - \text{Discount}$$
 - **Dual Sales Report Export**: Clicking **"Export Sales Report"** simultaneously generates:

@@ -11,6 +11,9 @@ import ui.theme as theme
 class ReportsView(ctk.CTkFrame):
     def __init__(self, parent):
         super().__init__(parent, fg_color="transparent")
+        self.custom_start_date = (date.today() - timedelta(days=7)).isoformat()
+        self.custom_end_date = date.today().isoformat()
+        self.previous_period = "Today"
         self._build_layout()
         self.load_daily_volume()
 
@@ -33,10 +36,13 @@ class ReportsView(ctk.CTkFrame):
         self.period_var = tk.StringVar(value="Today")
         self.period_menu = ctk.CTkOptionMenu(
             date_box, variable=self.period_var,
-            values=["Today", "Yesterday", "This Week", "This Month", "All Time"],
+            values=["Today", "Yesterday", "This Week", "This Month", "Custom Date"],
             command=self.on_period_change
         )
         self.period_menu.pack(side="left", padx=5)
+
+        self.range_badge = ctk.CTkLabel(date_box, text="", font=theme.FONT_SMALL, text_color=theme.PRIMARY_COLOR)
+        self.range_badge.pack(side="left", padx=6)
 
         ctk.CTkButton(
             date_box, text="📥 Export Sales Report",
@@ -130,7 +136,107 @@ class ReportsView(ctk.CTkFrame):
         scroll.grid(row=1, column=1, padx=(0, 10), pady=(0, 10), sticky="ns")
 
     def on_period_change(self, choice):
-        self.load_daily_volume()
+        if choice == "Custom Date":
+            self.open_custom_date_dialog()
+        else:
+            self.previous_period = choice
+            self.update_range_badge()
+            self.load_daily_volume()
+
+    def update_range_badge(self):
+        choice = self.period_var.get()
+        if choice == "Custom Date":
+            self.range_badge.configure(text=f"({self.custom_start_date} → {self.custom_end_date})")
+        else:
+            self.range_badge.configure(text="")
+
+    def open_custom_date_dialog(self):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Select Custom Date Range")
+        dialog.geometry("460x390")
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+
+        ctk.CTkLabel(dialog, text="📅 Select Custom Date Range", font=theme.FONT_TITLE).pack(pady=(15, 4))
+        ctk.CTkLabel(dialog, text="Choose start and end dates to filter sales volume & reports:", font=theme.FONT_SMALL, text_color="gray60").pack(pady=(0, 10))
+
+        # Quick preset buttons
+        preset_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        preset_frame.pack(fill="x", padx=25, pady=(0, 10))
+        ctk.CTkLabel(preset_frame, text="Quick Presets:", font=theme.FONT_SMALL, text_color="gray60").pack(side="left", padx=(0, 8))
+
+        today = date.today()
+
+        form_frame = ctk.CTkFrame(dialog, fg_color=("gray92", "gray22"), corner_radius=8)
+        form_frame.pack(fill="x", padx=25, pady=5)
+        form_frame.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(form_frame, text="From Date (YYYY-MM-DD):", font=theme.FONT_BODY_BOLD).grid(row=0, column=0, padx=12, pady=10, sticky="w")
+        from_entry = ctk.CTkEntry(form_frame, font=theme.FONT_BODY, placeholder_text="YYYY-MM-DD")
+        from_entry.insert(0, self.custom_start_date)
+        from_entry.grid(row=0, column=1, padx=12, pady=10, sticky="ew")
+
+        ctk.CTkLabel(form_frame, text="To Date (YYYY-MM-DD):", font=theme.FONT_BODY_BOLD).grid(row=1, column=0, padx=12, pady=10, sticky="w")
+        to_entry = ctk.CTkEntry(form_frame, font=theme.FONT_BODY, placeholder_text="YYYY-MM-DD")
+        to_entry.insert(0, self.custom_end_date)
+        to_entry.grid(row=1, column=1, padx=12, pady=10, sticky="ew")
+
+        def set_preset(s_date, e_date):
+            from_entry.delete(0, tk.END)
+            from_entry.insert(0, s_date)
+            to_entry.delete(0, tk.END)
+            to_entry.insert(0, e_date)
+
+        ctk.CTkButton(preset_frame, text="Last 7 Days", font=theme.FONT_SMALL, width=80,
+                      command=lambda: set_preset((today - timedelta(days=7)).isoformat(), today.isoformat())).pack(side="left", padx=3)
+        ctk.CTkButton(preset_frame, text="Last 30 Days", font=theme.FONT_SMALL, width=85,
+                      command=lambda: set_preset((today - timedelta(days=30)).isoformat(), today.isoformat())).pack(side="left", padx=3)
+        ctk.CTkButton(preset_frame, text="This Year", font=theme.FONT_SMALL, width=75,
+                      command=lambda: set_preset(date(today.year, 1, 1).isoformat(), today.isoformat())).pack(side="left", padx=3)
+
+        hint_lbl = ctk.CTkLabel(dialog, text="Format: YYYY-MM-DD (e.g. 2026-10-01)", font=theme.FONT_SMALL, text_color="gray50")
+        hint_lbl.pack(pady=4)
+
+        applied = False
+
+        def apply_range():
+            nonlocal applied
+            s_str = from_entry.get().strip()
+            e_str = to_entry.get().strip()
+
+            try:
+                d1 = date.fromisoformat(s_str)
+                d2 = date.fromisoformat(e_str)
+            except ValueError:
+                messagebox.showerror("Invalid Date", "Dates must be valid in YYYY-MM-DD format (e.g. 2026-10-01).")
+                return
+
+            if d1 > d2:
+                messagebox.showerror("Invalid Range", "The 'From Date' cannot be after the 'To Date'.")
+                return
+
+            self.custom_start_date = s_str
+            self.custom_end_date = e_str
+            self.previous_period = "Custom Date"
+            applied = True
+            dialog.destroy()
+            self.update_range_badge()
+            self.load_daily_volume()
+
+        def on_close():
+            if not applied:
+                self.period_var.set(self.previous_period)
+                self.update_range_badge()
+            dialog.destroy()
+
+        dialog.protocol("WM_DELETE_WINDOW", on_close)
+
+        btn_bar = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_bar.pack(fill="x", padx=25, pady=15)
+
+        ctk.CTkButton(btn_bar, text="✅ Apply Date Range", fg_color=theme.PRIMARY_COLOR, hover_color=theme.PRIMARY_HOVER,
+                      font=theme.FONT_BODY_BOLD, command=apply_range, width=150).pack(side="left", padx=5)
+        ctk.CTkButton(btn_bar, text="Cancel", fg_color="gray50", font=theme.FONT_BODY, command=on_close, width=90).pack(side="right", padx=5)
 
     def get_selected_dates(self):
         choice = self.period_var.get()
@@ -146,7 +252,9 @@ class ReportsView(ctk.CTkFrame):
         elif choice == "This Month":
             start_month = today.replace(day=1).isoformat()
             return start_month, today.isoformat()
-        else:  # All Time
+        elif choice == "Custom Date":
+            return self.custom_start_date, self.custom_end_date
+        else:
             return None, None
 
     def load_daily_volume(self):
@@ -224,7 +332,11 @@ class ReportsView(ctk.CTkFrame):
 
     def export_sales_report(self):
         start_date, end_date = self.get_selected_dates()
-        period_label = self.period_var.get()
+        choice = self.period_var.get()
+        if choice == "Custom Date":
+            period_label = f"Custom ({self.custom_start_date} to {self.custom_end_date})"
+        else:
+            period_label = choice
         try:
             excel_path, txt_path = export_sales_reports(
                 start_date=start_date,
