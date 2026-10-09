@@ -5,7 +5,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from database.db import get_connection
 from models.reports_repo import get_expiry_alerts
-from models.sales_repo import get_sales_history
+from models.sales_repo import get_sales_history, get_sales_summary, get_top_selling_medicines
 
 def get_exports_dir():
     """Returns absolute path to the exports directory."""
@@ -125,6 +125,146 @@ def export_sales_to_excel(start_date=None, end_date=None, target_path=None):
 
     wb.save(target_path)
     return target_path
+
+def generate_sales_text_report(start_date=None, end_date=None, period_label="Selected Period", target_path=None):
+    """
+    Generates a beautifully formatted professional text report (.txt) of sales,
+    KPIs, payment method breakdown, top-selling products, and itemized bills.
+    """
+    if not target_path:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        slug = period_label.lower().replace(" ", "_").replace("(", "").replace(")", "")
+        target_path = os.path.join(get_exports_dir(), f"pharmacy_sales_report_{slug}_{timestamp}.txt")
+
+    summary = get_sales_summary(start_date=start_date, end_date=end_date)
+    sales = get_sales_history(start_date=start_date, end_date=end_date, limit=10000)
+    top_meds = get_top_selling_medicines(start_date=start_date, end_date=end_date, limit=10)
+
+    # Format Date Range string
+    if start_date and end_date:
+        if start_date == end_date:
+            date_range_str = f"{start_date} ({period_label})"
+        else:
+            date_range_str = f"{start_date} to {end_date} ({period_label})"
+    elif start_date:
+        date_range_str = f"From {start_date} onwards ({period_label})"
+    else:
+        date_range_str = "All Time (All Recorded Sales)"
+
+    total_inv = summary["total_invoices"]
+    total_units = summary["total_items_sold"]
+    gross_sub = summary.get("gross_subtotal", summary["total_revenue"] + summary["total_discount"])
+    discount = summary["total_discount"]
+    net_rev = summary["total_revenue"]
+    cogs = summary.get("total_cogs", 0.0)
+    est_profit = summary["estimated_gross_profit"]
+    margin_pct = (est_profit / net_rev * 100) if net_rev > 0 else 0.0
+    avg_ticket = (net_rev / total_inv) if total_inv > 0 else 0.0
+
+    gen_time_str = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+    w = 88
+    div_eq = "=" * w
+    div_dash = "-" * w
+
+    lines = []
+    lines.append(div_eq)
+    lines.append("SMART PHARMACY MANAGEMENT SYSTEM".center(w))
+    lines.append("SALES & PERFORMANCE AUDIT REPORT".center(w))
+    lines.append(div_eq)
+    lines.append("")
+    lines.append(" REPORT METADATA")
+    lines.append(f"   Generated On       : {gen_time_str}")
+    lines.append(f"   Report Period      : {date_range_str}")
+    lines.append("   Store / Facility   : Smart Pharmacy Retail Hub")
+    lines.append("   System Engine      : SQLite3 Enterprise POS Engine")
+    lines.append("")
+    lines.append(div_dash)
+    lines.append(" KEY PERFORMANCE INDICATORS (KPIs)")
+    lines.append(div_dash)
+    lines.append(f"   Total Invoices Issued       : {total_inv:>12,d} bills")
+    lines.append(f"   Total Units Sold            : {total_units:>12,d} units")
+    lines.append(f"   Gross Sales (Subtotal)      : ${gross_sub:>12,.2f}")
+    lines.append(f"   Total Discounts Given       : ${discount:>12,.2f}")
+    lines.append(f"   Net Sales Revenue           : ${net_rev:>12,.2f}")
+    lines.append(f"   Cost of Goods Sold (COGS)   : ${cogs:>12,.2f}")
+    lines.append(f"   Estimated Gross Profit      : ${est_profit:>12,.2f}")
+    lines.append(f"   Gross Profit Margin         : {margin_pct:>12.2f} %")
+    lines.append(f"   Average Invoice Value       : ${avg_ticket:>12,.2f}")
+    lines.append("")
+    lines.append(div_dash)
+    lines.append(" PAYMENT METHOD BREAKDOWN")
+    lines.append(div_dash)
+    lines.append(f"   {'Payment Mode':<28} {'Transactions':>14} {'Total Amount ($)':>18} {'Share (%)':>14}")
+    lines.append("   " + "-" * 78)
+
+    pm_list = summary.get("payment_breakdown", [])
+    if pm_list:
+        for pm in pm_list:
+            share = (pm["amount"] / net_rev * 100) if net_rev > 0 else 0.0
+            lines.append(f"   {pm['payment_method']:<28} {pm['count']:>14,d} ${pm['amount']:>17,.2f} {share:>13.2f}%")
+    else:
+        lines.append("   (No transactions recorded for this period)")
+    lines.append("   " + "-" * 78)
+    lines.append(f"   {'TOTAL':<28} {total_inv:>14,d} ${net_rev:>17,.2f} {'100.00%':>14}")
+    lines.append("")
+
+    lines.append(div_dash)
+    lines.append(" TOP SELLING MEDICINES IN THIS PERIOD")
+    lines.append(div_dash)
+    lines.append(f"   {'#':<3} {'Medicine Name':<24} {'Manufacturer':<22} {'Qty Sold':>9} {'Revenue ($)':>12} {'Profit ($)':>12}")
+    lines.append("   " + "-" * 88)
+    if top_meds:
+        for idx, tm in enumerate(top_meds, 1):
+            name_d = tm["medicine_name"][:23]
+            comp_d = tm["company"][:21]
+            lines.append(f"   {idx:<3} {name_d:<24} {comp_d:<22} {tm['units_sold']:>9,d} ${tm['total_sales']:>11,.2f} ${tm['profit']:>11,.2f}")
+    else:
+        lines.append("   (No product sales recorded in this period)")
+    lines.append("")
+
+    lines.append(div_dash)
+    lines.append(" ITEMIZED TRANSACTION ARCHIVE")
+    lines.append(div_dash)
+    lines.append(f"   {'Invoice #':<16} {'Date & Time':<17} {'Patient / Customer':<20} {'Items':>6} {'Total ($)':>10} {'Profit ($)':>10}")
+    lines.append("   " + "-" * 88)
+    if sales:
+        for s in sales:
+            inv = s["invoice_no"]
+            dt = s["sale_date"][:16] if s.get("sale_date") else "-"
+            cust = (s.get("customer_name") or "Walk-in")[:19]
+            lines.append(f"   {inv:<16} {dt:<17} {cust:<20} {s['item_count']:>6} ${s['grand_total']:>9,.2f} ${s['estimated_profit']:>9,.2f}")
+    else:
+        lines.append("   (No invoices recorded in this period)")
+
+    lines.append("")
+    lines.append(div_eq)
+    lines.append("*** END OF REPORT ***".center(w))
+    lines.append(div_eq)
+
+    report_content = "\n".join(lines)
+    with open(target_path, "w", encoding="utf-8") as f:
+        f.write(report_content)
+
+    return target_path
+
+def export_sales_reports(start_date=None, end_date=None, period_label="Today"):
+    """
+    Exports both Excel spreadsheet (.xlsx) and formatted Text audit report (.txt)
+    for the selected period.
+    Returns (excel_path, txt_path).
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    slug = period_label.lower().replace(" ", "_").replace("(", "").replace(")", "")
+
+    excel_filename = f"pharmacy_sales_{slug}_{timestamp}.xlsx"
+    excel_path = os.path.join(get_exports_dir(), excel_filename)
+    export_sales_to_excel(start_date=start_date, end_date=end_date, target_path=excel_path)
+
+    txt_filename = f"pharmacy_sales_report_{slug}_{timestamp}.txt"
+    txt_path = os.path.join(get_exports_dir(), txt_filename)
+    generate_sales_text_report(start_date=start_date, end_date=end_date, period_label=period_label, target_path=txt_path)
+
+    return excel_path, txt_path
 
 def export_expiry_to_excel(target_path=None):
     """Exports list of expired and near-expiry stock for supplier returns."""

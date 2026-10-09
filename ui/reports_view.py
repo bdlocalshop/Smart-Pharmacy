@@ -1,9 +1,11 @@
+import os
+import subprocess
 import customtkinter as ctk
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import date, timedelta
-from models.sales_repo import get_daily_sales_summary, get_sales_history, get_sale_details
-from services.exporter import export_sales_to_excel, generate_thermal_receipt_text
+from models.sales_repo import get_sales_summary, get_sales_history, get_sale_details
+from services.exporter import export_sales_reports, generate_thermal_receipt_text, get_exports_dir
 import ui.theme as theme
 
 class ReportsView(ctk.CTkFrame):
@@ -31,15 +33,15 @@ class ReportsView(ctk.CTkFrame):
         self.period_var = tk.StringVar(value="Today")
         self.period_menu = ctk.CTkOptionMenu(
             date_box, variable=self.period_var,
-            values=["Today", "Yesterday", "All Time"],
+            values=["Today", "Yesterday", "This Week", "This Month", "All Time"],
             command=self.on_period_change
         )
         self.period_menu.pack(side="left", padx=5)
 
         ctk.CTkButton(
-            date_box, text="📥 Export Sales to Excel",
+            date_box, text="📥 Export Sales Report",
             fg_color="#065F46", hover_color="#047857",
-            font=theme.FONT_BODY_BOLD, command=self.export_sales_excel
+            font=theme.FONT_BODY_BOLD, command=self.export_sales_report
         ).pack(side="left", padx=5)
 
         # ---------------- KPI CARDS BANNER ----------------
@@ -138,15 +140,20 @@ class ReportsView(ctk.CTkFrame):
         elif choice == "Yesterday":
             yest = (today - timedelta(days=1)).isoformat()
             return yest, yest
-        else: # All Time
+        elif choice == "This Week":
+            start_week = (today - timedelta(days=today.weekday())).isoformat()
+            return start_week, today.isoformat()
+        elif choice == "This Month":
+            start_month = today.replace(day=1).isoformat()
+            return start_month, today.isoformat()
+        else:  # All Time
             return None, None
 
     def load_daily_volume(self):
         start_date, end_date = self.get_selected_dates()
         
-        # Summary metrics
-        target_date = start_date or date.today().isoformat()
-        summary = get_daily_sales_summary(target_date)
+        # Summary metrics dynamically calculated for the selected period
+        summary = get_sales_summary(start_date=start_date, end_date=end_date)
 
         self.kpi_invoices_lbl.configure(text=str(summary["total_invoices"]))
         self.kpi_units_lbl.configure(text=str(summary["total_items_sold"]))
@@ -215,10 +222,68 @@ class ReportsView(ctk.CTkFrame):
         ctk.CTkButton(btn_box, text="📋 Copy Text", command=copy_to_clipboard, width=100).pack(side="left", padx=5)
         ctk.CTkButton(btn_box, text="Close", fg_color="gray50", command=dialog.destroy, width=90).pack(side="right", padx=5)
 
-    def export_sales_excel(self):
+    def export_sales_report(self):
         start_date, end_date = self.get_selected_dates()
+        period_label = self.period_var.get()
         try:
-            path = export_sales_to_excel(start_date=start_date, end_date=end_date)
-            messagebox.showinfo("Export Successful", f"Sales history exported to:\n{path}")
+            excel_path, txt_path = export_sales_reports(
+                start_date=start_date,
+                end_date=end_date,
+                period_label=period_label
+            )
+            self.show_export_success_dialog(period_label, excel_path, txt_path)
         except Exception as e:
             messagebox.showerror("Export Failed", str(e))
+
+    def show_export_success_dialog(self, period_label, excel_path, txt_path):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Sales Reports Exported")
+        dialog.geometry("580x370")
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+
+        ctk.CTkLabel(dialog, text="✅ Sales Reports Generated Successfully!", font=theme.FONT_SUBTITLE, text_color=theme.SUCCESS_COLOR).pack(pady=(15, 6))
+        ctk.CTkLabel(dialog, text=f"Period: {period_label}", font=theme.FONT_BODY_BOLD).pack(pady=(0, 10))
+
+        content_frame = ctk.CTkFrame(dialog, fg_color=("gray92", "gray22"), corner_radius=8)
+        content_frame.pack(fill="both", expand=True, padx=20, pady=5)
+
+        # File 1: Excel
+        f1_box = ctk.CTkFrame(content_frame, fg_color="transparent")
+        f1_box.pack(fill="x", padx=12, pady=8)
+        ctk.CTkLabel(f1_box, text="📊 Excel Spreadsheet (.xlsx):", font=theme.FONT_BODY_BOLD).pack(anchor="w")
+        ctk.CTkLabel(f1_box, text=os.path.basename(excel_path), font=theme.FONT_SMALL, text_color=theme.PRIMARY_COLOR).pack(anchor="w")
+
+        # File 2: Text Report
+        f2_box = ctk.CTkFrame(content_frame, fg_color="transparent")
+        f2_box.pack(fill="x", padx=12, pady=8)
+        ctk.CTkLabel(f2_box, text="📄 Text Performance Audit Report (.txt):", font=theme.FONT_BODY_BOLD).pack(anchor="w")
+        ctk.CTkLabel(f2_box, text=os.path.basename(txt_path), font=theme.FONT_SMALL, text_color=theme.PRIMARY_COLOR).pack(anchor="w")
+
+        # Action Buttons
+        btn_bar = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_bar.pack(fill="x", padx=20, pady=15)
+
+        def open_txt():
+            try:
+                os.startfile(txt_path)
+            except Exception:
+                subprocess.Popen(["notepad.exe", txt_path])
+
+        def open_excel():
+            try:
+                os.startfile(excel_path)
+            except Exception:
+                subprocess.Popen(["explorer", "/select,", excel_path])
+
+        def open_folder():
+            folder = get_exports_dir()
+            try:
+                os.startfile(folder)
+            except Exception:
+                subprocess.Popen(["explorer", folder])
+
+        ctk.CTkButton(btn_bar, text="📄 View Text Report", fg_color=theme.PRIMARY_COLOR, command=open_txt, width=130).pack(side="left", padx=4)
+        ctk.CTkButton(btn_bar, text="📊 Open Excel", fg_color="#065F46", hover_color="#047857", command=open_excel, width=105).pack(side="left", padx=4)
+        ctk.CTkButton(btn_bar, text="📁 Open Folder", fg_color="gray40", command=open_folder, width=105).pack(side="left", padx=4)
+        ctk.CTkButton(btn_bar, text="Close", fg_color="gray50", command=dialog.destroy, width=75).pack(side="right", padx=4)

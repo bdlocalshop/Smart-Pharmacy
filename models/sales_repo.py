@@ -92,6 +92,61 @@ def checkout_sale(cart_items, customer_name="Walk-in Customer", customer_phone="
     finally:
         conn.close()
 
+def get_sales_summary(start_date=None, end_date=None):
+    """
+    Retrieves sales metrics for a given date range (or all-time if None):
+    total invoices, items sold, gross revenue, discount, net revenue,
+    estimated gross profit, COGS, and payment breakdown.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    where_clause = " WHERE 1=1"
+    params = []
+    if start_date:
+        where_clause += " AND DATE(s.sale_date) >= DATE(?)"
+        params.append(start_date)
+    if end_date:
+        where_clause += " AND DATE(s.sale_date) <= DATE(?)"
+        params.append(end_date)
+
+    query = f"""
+        SELECT 
+            COUNT(s.id) as total_invoices,
+            COALESCE(SUM(s.subtotal), 0) as gross_subtotal,
+            COALESCE(SUM(s.discount), 0) as total_discount,
+            COALESCE(SUM(s.grand_total), 0) as total_revenue,
+            COALESCE(SUM(inv.item_qty), 0) as total_items_sold,
+            COALESCE(SUM(inv.item_cost), 0) as total_cogs,
+            COALESCE(SUM(inv.item_profit - s.discount), 0) as estimated_gross_profit
+        FROM sales s
+        LEFT JOIN (
+            SELECT 
+                sale_id,
+                SUM(quantity) as item_qty,
+                SUM(quantity * unit_cost) as item_cost,
+                SUM(quantity * (unit_price - unit_cost)) as item_profit
+            FROM sale_items
+            GROUP BY sale_id
+        ) inv ON s.id = inv.sale_id
+        {where_clause};
+    """
+    cursor.execute(query, tuple(params))
+    summary = dict(cursor.fetchone())
+
+    # Payment breakdown for this period
+    query_payment = f"""
+        SELECT payment_method, COUNT(*) as count, COALESCE(SUM(grand_total), 0) as amount
+        FROM sales s
+        {where_clause}
+        GROUP BY payment_method;
+    """
+    cursor.execute(query_payment, tuple(params))
+    summary["payment_breakdown"] = [dict(row) for row in cursor.fetchall()]
+
+    conn.close()
+    return summary
+
 def get_daily_sales_summary(target_date=None):
     """
     Retrieves daily volume: total sales count, total items sold, gross revenue,
@@ -99,36 +154,43 @@ def get_daily_sales_summary(target_date=None):
     """
     if not target_date:
         target_date = date.today().isoformat()
+    return get_sales_summary(start_date=target_date, end_date=target_date)
 
+def get_top_selling_medicines(start_date=None, end_date=None, limit=10):
+    """Retrieves top selling medicines for a period."""
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Query daily aggregates
-    cursor.execute("""
+    where_clause = " WHERE 1=1"
+    params = []
+    if start_date:
+        where_clause += " AND DATE(s.sale_date) >= DATE(?)"
+        params.append(start_date)
+    if end_date:
+        where_clause += " AND DATE(s.sale_date) <= DATE(?)"
+        params.append(end_date)
+
+    query = f"""
         SELECT 
-            COUNT(DISTINCT s.id) as total_invoices,
-            COALESCE(SUM(s.grand_total), 0) as total_revenue,
-            COALESCE(SUM(s.discount), 0) as total_discount,
-            COALESCE(SUM(si.quantity), 0) as total_items_sold,
-            COALESCE(SUM(si.quantity * (si.unit_price - si.unit_cost)), 0) - COALESCE(SUM(DISTINCT s.discount), 0) as estimated_gross_profit
-        FROM sales s
-        LEFT JOIN sale_items si ON s.id = si.sale_id
-        WHERE DATE(s.sale_date) = DATE(?);
-    """, (target_date,))
-    summary = dict(cursor.fetchone())
-
-    # Payment breakdown
-    cursor.execute("""
-        SELECT payment_method, COUNT(*) as count, SUM(grand_total) as amount
-        FROM sales
-        WHERE DATE(sale_date) = DATE(?)
-        GROUP BY payment_method;
-    """, (target_date,))
-    payment_breakdown = [dict(row) for row in cursor.fetchall()]
-
+            m.name as medicine_name,
+            m.generic_name,
+            m.company,
+            COALESCE(SUM(si.quantity), 0) as units_sold,
+            COALESCE(SUM(si.total_price), 0) as total_sales,
+            COALESCE(SUM(si.quantity * (si.unit_price - si.unit_cost)), 0) as profit
+        FROM sale_items si
+        JOIN sales s ON si.sale_id = s.id
+        JOIN medicines m ON si.medicine_id = m.id
+        {where_clause}
+        GROUP BY m.id
+        ORDER BY units_sold DESC
+        LIMIT ?;
+    """
+    params.append(limit)
+    cursor.execute(query, tuple(params))
+    rows = [dict(row) for row in cursor.fetchall()]
     conn.close()
-    summary["payment_breakdown"] = payment_breakdown
-    return summary
+    return rows
 
 def get_sales_history(start_date=None, end_date=None, search=None, limit=200):
     """Retrieves list of past sales/invoices."""

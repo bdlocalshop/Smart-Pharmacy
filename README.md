@@ -23,10 +23,13 @@ A high-performance, offline-first Windows desktop application built specifically
   - **Expiring in < 60 & < 90 Days**: Early warning notifications.
 - **Low Stock Warnings**: Automatically flags any medicine where total valid stock falls below the configured reorder threshold.
 
-### 4. Daily Sales Volume & Real-Time Profit
-- **Sales Analytics**: Search and track daily transaction volume, items sold, gross sales revenue, and total discounts.
-- **Real Profit Calculation**: Accurately computes gross profit per sale based on the actual purchase cost of the deducted batch:
+### 4. Sales Volume & Performance Reports
+- **Dynamic Period Filtering**: Switch seamlessly between **Today**, **Yesterday**, **This Week**, **This Month**, and **All Time**. All four KPI metric counters (*Total Invoices*, *Units Sold*, *Gross Revenue*, and *Estimated Profit*) automatically recalculate on the fly for the selected period.
+- **Real Profit Calculation**: Accurately computes gross profit based on the actual purchase cost of each deducted batch:
   $$\text{Profit} = (\text{Selling Price} - \text{Batch Purchase Cost}) \times \text{Quantity} - \text{Discount}$$
+- **Dual Sales Report Export**: Clicking **"Export Sales Report"** simultaneously generates:
+  1. A formatted **Excel spreadsheet (`.xlsx`)** with complete transaction records.
+  2. A clean, executive **Text audit report (`.txt`)** with period date ranges, KPIs, payment method breakdown, top-selling medicines, and transaction logs.
 - **Invoice Archive**: Search past bills by invoice number, customer name, or phone number, and re-print receipts at any time.
 
 ### 5. Data Storage, Maintenance & Backup Center
@@ -34,7 +37,7 @@ A high-performance, offline-first Windows desktop application built specifically
 - **Automated Rolling Backups**: Automatically creates a timestamped backup in the `backups/` directory on application startup, safely pruning snapshots older than 14 days.
 - **One-Click USB / External Export**: Allows the pharmacy owner to backup the live database directly to a USB flash drive or cloud-synced folder (Google Drive, OneDrive).
 - **One-Click Database Restore**: Easily recover data from any previous snapshot or migration file with safety backups taken before replacement.
-- **Excel & CSV Export Center**: Export Inventory reports, Sales history, and Expiry lists to Microsoft Excel with professional formatting.
+- **Excel, Text & CSV Export Center**: Export Inventory reports, Sales history, Text audit reports, and Expiry lists with one click.
 
 ---
 

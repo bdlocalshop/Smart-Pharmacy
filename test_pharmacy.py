@@ -14,13 +14,14 @@ from models.medicine_repo import (
     get_or_create_supplier
 )
 from models.sales_repo import (
-    checkout_sale, get_daily_sales_summary, get_sales_history, get_sale_details
+    checkout_sale, get_daily_sales_summary, get_sales_summary, get_top_selling_medicines, get_sales_history, get_sale_details
 )
 from models.reports_repo import (
     get_expiry_alerts, get_low_stock_alerts, get_inventory_valuation
 )
 from services.exporter import (
-    export_inventory_to_excel, export_sales_to_excel, export_expiry_to_excel, generate_thermal_receipt_text
+    export_inventory_to_excel, export_sales_to_excel, export_expiry_to_excel, generate_thermal_receipt_text,
+    generate_sales_text_report, export_sales_reports
 )
 
 class TestSmartPharmacy(unittest.TestCase):
@@ -57,12 +58,16 @@ class TestSmartPharmacy(unittest.TestCase):
 
     def test_03_sales_checkout_and_stock_deduction(self):
         # Add a fresh test medicine and batch to test exact deduction
+        import time
+        unique_name = f"Test-Amox-{int(time.time()*1000)}"
         sup_id = get_or_create_supplier("Test Supplier Direct")
-        med_id, _ = add_medicine("Test-Amox", "Amoxicillin", "Test Labs", "Capsule", "Shelf T-1", 5)
+        med_id, err = add_medicine(unique_name, "Amoxicillin", "Test Labs", "Capsule", "Shelf T-1", 5)
+        self.assertIsNotNone(med_id, f"Failed to add test medicine: {err}")
         
         today = date.today()
         exp_date = (today + timedelta(days=200)).isoformat()
-        batch_id, _ = add_batch(med_id, sup_id, "TEST-B1", 10.0, 15.0, exp_date, 50)
+        batch_id, b_err = add_batch(med_id, sup_id, f"TB-{int(time.time())}", 10.0, 15.0, exp_date, 50)
+        self.assertIsNotNone(batch_id, f"Failed to add test batch: {b_err}")
 
         # Checkout 5 units
         cart = [{
@@ -107,21 +112,44 @@ class TestSmartPharmacy(unittest.TestCase):
         self.assertIsInstance(low_stock, list)
 
     def test_05_daily_sales_summary(self):
-        summary = get_daily_sales_summary()
-        self.assertIn("total_invoices", summary)
-        self.assertIn("total_revenue", summary)
-        self.assertIn("estimated_gross_profit", summary)
-        self.assertGreater(summary["total_invoices"], 0)
+        # Test today's summary
+        today_str = date.today().isoformat()
+        today_summary = get_sales_summary(start_date=today_str, end_date=today_str)
+        self.assertIn("total_invoices", today_summary)
+        self.assertIn("total_revenue", today_summary)
+        self.assertIn("estimated_gross_profit", today_summary)
+        self.assertIn("total_items_sold", today_summary)
+
+        # Test all-time summary
+        all_summary = get_sales_summary(start_date=None, end_date=None)
+        self.assertGreaterEqual(all_summary["total_invoices"], today_summary["total_invoices"])
+
+        # Test top selling medicines
+        top_meds = get_top_selling_medicines(limit=5)
+        self.assertIsInstance(top_meds, list)
 
     def test_06_exports(self):
         inv_path = export_inventory_to_excel()
         self.assertTrue(os.path.exists(inv_path))
 
-        sales_path = export_sales_to_excel()
-        self.assertTrue(os.path.exists(sales_path))
-
         exp_path = export_expiry_to_excel()
         self.assertTrue(os.path.exists(exp_path))
+
+        # Test Dual Sales Reports Export (Excel + Text report)
+        excel_path, txt_path = export_sales_reports(period_label="Today")
+        self.assertTrue(os.path.exists(excel_path), "Excel report must be created.")
+        self.assertTrue(os.path.exists(txt_path), "Text report must be created.")
+
+        # Verify Text Report contents
+        with open(txt_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        self.assertIn("SMART PHARMACY MANAGEMENT SYSTEM", content)
+        self.assertIn("Report Period", content)
+        self.assertIn("Total Invoices Issued", content)
+        self.assertIn("Total Units Sold", content)
+        self.assertIn("Gross Sales", content)
+        self.assertIn("Estimated Gross Profit", content)
+        self.assertIn("PAYMENT METHOD BREAKDOWN", content)
 
     def test_07_backup_manager(self):
         auto_path = create_automated_backup()
